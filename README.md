@@ -1,8 +1,19 @@
+<!--
+Thank you if you like this profile README!
+.
+BUT, please DO NOT copy this and create your profile based on it.
+.
+You can use it as a reference, and copy a part of it, but DO NOT copy
+all of this and create your profile based on it.
+.
+It is very common that you forget to change some information and leave
+mine in your profile. This has happened too many times.
+
+-->
+
 ## What's up, guys! I'm Pedro Repezo!  👋
 
 -
-
-
 
 ## 💬 I little bit about Me:
 - 🛒 Today I'm working with Supply Chain Managment. 
