@@ -29,6 +29,6 @@ mine in your profile. This has happened too many times.
 
 --
 
-NOTE: This does not indicate my skill level or language proficiency, it's merely a GitHub metric of which languages I have the most code of on GitHub.
+NOTE: This does not indicate my skill level or language proficiency.
 ---
 <img aligm="center" alt="Microsoft" src="https://img.shields.io/badge/Microsoft_Office-D83B01?style=for-the-badge&logo=microsoft-office&logoColor=white" /> <img aligm="center" alt="Python" src="https://img.shields.io/badge/Python-14354C?style=for-the-badge&logo=python&logoColor=white" /> <img aligm="center" alt="P" src="https://img.shields.io/badge/Colab-F9AB00?style=for-the-badge&logo=googlecolab&color=525252" />
