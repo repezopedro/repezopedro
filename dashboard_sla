@@ -18,9 +18,9 @@ st.set_page_config(
 )
 
 # Paleta de cores inspirada em "Bioxxi" (Ciano/Verde e Cinza Profissional)
-COLOR_PRIMARY = "#0065D1"  # Azul Ciano
+COLOR_PRIMARY = "#0065D1" # Azul Ciano
 COLOR_SECONDARY = '#3CB371' # Verde Claro
-COLOR_TEXT = '#2F4F4F'     # Cinza Escuro (Slate Gray)
+COLOR_TEXT = '#2F4F4F' # Cinza Escuro (Slate Gray)
 
 # Função auxiliar para simular o cálculo de dias úteis (Simplificado)
 def add_business_days(date, days_to_add):
@@ -32,7 +32,7 @@ def add_business_days(date, days_to_add):
     while days_to_add > 0:
         current_date += timedelta(days=1)
         # 0=Segunda, 6=Domingo
-        if current_date.weekday() < 5:  # Se não for Sábado (5) ou Domingo (6)
+        if current_date.weekday() < 5: # Se não for Sábado (5) ou Domingo (6)
             days_to_add -= 1
     return current_date
 
@@ -77,7 +77,7 @@ def load_data(file_path):
             
     # Converte IDs para String (para garantir 'nunique' correto em Pandas)
     for col in id_cols:
-         if col in df.columns:
+          if col in df.columns:
             df[col] = df[col].astype(str)
 
     # Exclusão de Pedidos Extras (Requisito)
@@ -128,7 +128,7 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
         'NUMEROMOV': [f'NMV-{i:05d}' for i in range(num_records)],
         'IDMOV': [f'IMV-{i:06d}' for i in range(num_records)],
         'CENTRO_CUSTO': [random.choice(['CC100','CC200','CC300']) for _ in range(num_records)],
-    'COLIGADA': [random.choice(['COL1','COL2','COL3']) for _ in range(num_records)],
+        'COLIGADA': [random.choice(['COL1','COL2','COL3']) for _ in range(num_records)],
         'PEDIDO_EXTRA': [random.choice(['N','N','N','S']) for _ in range(num_records)],
         'STATUS_MOVIMENTO': [random.choice(['A','B','C']) for _ in range(num_records)],
         'DTCRIACAO': rng,
@@ -137,7 +137,7 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
         'DATAEMISSAO': rng - pd.to_timedelta(np.random.randint(0, 5, size=num_records), unit='d'),
         'DATA_PREVISTA_ENTREGA': rng + pd.to_timedelta(np.random.randint(3, 30, size=num_records), unit='d'),
         # Simula aprovação CMEXX em 0-4 dias úteis após criação
-        'DATA_APROVACAO_CMEXX': [add_business_days(d, int(random.choice([0,1,1,2,3,4]))) for d in rng],
+        'DATA_APROVACAO_CMEXX': [],
         # Simula data de importacao 0-6 dias úteis após aprovação
         'DTIMPORTACAO': [],
         # Confirmação de suprimentos (pode ser NaT para alguns)
@@ -146,14 +146,18 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
         'TOTAL': np.round(np.random.uniform(100.0, 5000.0, size=num_records), 2)
     }
 
-    # Preenche DTIMPORTACAO e DTCONFIRMACAOSUPRIMENTOS com base nas aprovações
-    for aprov in data['DATA_APROVACAO_CMEXX']:
+    # Calcula DATA_APROVACAO_CMEXX e DTIMPORTACAO sequencialmente
+    for d in rng:
+        aprov = add_business_days(d, int(random.choice([0,1,1,2,3,4])))
+        data['DATA_APROVACAO_CMEXX'].append(aprov)
+        
         # 70% chance de ter importação em 0-4 dias úteis, senão NaT
         if pd.isna(aprov) or random.random() < 0.15:
             data['DTIMPORTACAO'].append(pd.NaT)
         else:
             data['DTIMPORTACAO'].append(add_business_days(aprov, int(random.choice([0,1,1,2,3]))))
 
+    # Preenche DTCONFIRMACAOSUPRIMENTOS
     for cri in data['DTCRIACAO']:
         # 60% chance de confirmação de suprimentos ocorrer antes do fim do mês de competencia
         if random.random() < 0.6:
@@ -180,26 +184,20 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
     df['AnoCriacao'] = df['DTCRIACAO'].dt.year
     df['MesAnoCompetencia'] = df['DATACOMPETENCIA'].dt.to_period('M')
     df['DiaCriacao'] = df['DTCRIACAO'].dt.day
-    df['DENTROPRAZOCORTE'] = (df['DiaCriacao'] <= 20)
+    df['DentroPrazoCorte'] = (df['DiaCriacao'] <= 20)
 
     # Garantir coluna de Mês/Ano de Criação baseada apenas em DTCRIACAO
     df['MesAnoCriacao_str'] = df['DTCRIACAO'].dt.to_period('M').astype(str)
 
-    # SLA CMEXX limite e cumprimento (nomes em MAIÚSCULAS)
-    df['SLA_CMEXX_LIM'] = df['DTCRIACAO'].apply(lambda d: add_business_days(d, 2) if not pd.isna(d) else pd.NaT)
-    df['SLA_CMEXX_CUMPRIDO'] = (df['DATA_APROVACAO_CMEXX'] <= df['SLA_CMEXX_LIM']).fillna(False)
+    # SLA CMEXX limite e cumprimento
+    df['SLA_CMEXX_Lim'] = df['DTCRIACAO'].apply(lambda d: add_business_days(d, 2) if not pd.isna(d) else pd.NaT)
+    df['SLA_CMEXX_Cumprido'] = (df['DATA_APROVACAO_CMEXX'] <= df['SLA_CMEXX_Lim']).fillna(False)
 
-    # SLA importação (nomes em MAIÚSCULAS)
-    df['SLA_IMP_LIM'] = df['DATA_APROVACAO_CMEXX'].apply(lambda d: add_business_days(d, 2) if not pd.isna(d) else pd.NaT)
-    df['SLA_IMP_CUMPRIDO'] = (df['DTIMPORTACAO'] <= df['SLA_IMP_LIM']).fillna(False)
+    # SLA importação
+    df['SLA_IMP_Lim'] = df['DATA_APROVACAO_CMEXX'].apply(lambda d: add_business_days(d, 2) if not pd.isna(d) else pd.NaT)
+    df['SLA_IMP_Cumprido'] = (df['DTIMPORTACAO'] <= df['SLA_IMP_Lim']).fillna(False)
 
-    # Ajuste de nomes para compatibilidade com restante do script
-    df['SLA_CMEXX_Lim'] = df['SLA_CMEXX_CUMPRIDO'] # Aqui o nome 'Lim' foi usado como 'Cumprido' na simulação anterior, mantendo por consistência.
-    df['SLA_CMEXX_Cumprido'] = df['SLA_CMEXX_CUMPRIDO']
-    df['SLA_IMP_Lim'] = df['SLA_IMP_CUMPRIDO'] # Aqui o nome 'Lim' foi usado como 'Cumprido' na simulação anterior, mantendo por consistência.
-    df['SLA_IMP_Cumprido'] = df['SLA_IMP_CUMPRIDO']
-
-    # Ajuste de nome para 'DentroPrazoCorte' com capitalização esperada
+    # O nome da coluna de Corte deve estar em CamelCase como no load_data (corrigido)
     df = df.rename(columns={'DENTROPRAZOCORTE': 'DentroPrazoCorte'})
 
     return df
@@ -245,6 +243,9 @@ def calculate_kpi_sla_importacao(df):
 
     return (pedidos_no_prazo / total_pedidos) if total_pedidos > 0 else 0.0
 
+# ... (Função plot_kpi_eficiencia_entrega, calculate_adesao_by_month, plot_adesao_by_month, 
+#      calculate_sla_cmexx_by_month, plot_sla_cmexx_by_month são mantidas) ...
+
 def plot_kpi_eficiencia_entrega(df):
     """KPI 2: % de Pedidos Entregues no Prazo de Competência (Gráfico de Linha/Barra) - Base NUMEROMOV."""
     if df.empty:
@@ -279,7 +280,7 @@ def plot_kpi_eficiencia_entrega(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-# --- NOVAS FUNÇÕES DE DETALHE ---
+# --- FUNÇÕES DE DETALHE EXISTENTES ---
 
 def calculate_adesao_by_month(df):
     """Calcula o % de Pedidos Criados no Prazo de Corte (Dia 20) MÊS A MÊS."""
@@ -359,6 +360,52 @@ def plot_sla_cmexx_by_month(df_monthly):
     fig.update_xaxes(title="Mês/Ano de Criação")
     st.plotly_chart(fig, use_container_width=True)
 
+
+# --- NOVAS FUNÇÕES DE DETALHE (KPI 5: SLA de Importação) ---
+
+def calculate_sla_importacao_by_month(df):
+    """Calcula o % mensal de Importações dentro do SLA (2 dias úteis) por mês de criação."""
+    if df.empty:
+        return pd.DataFrame()
+
+    # Agrupa por IDSOLICITACAO para ter um pedido único
+    df_unique = df.groupby('IDSOLICITACAO').first().reset_index()
+    
+    # Usa a data de CRIAÇÃO para o eixo X do gráfico de tendência
+    df_unique['MesAnoCriacao_str'] = df_unique['DTCRIACAO'].dt.to_period('M').astype(str)
+
+    # Agrupa pelo Mês/Ano de Criação
+    grouped = df_unique.groupby('MesAnoCriacao_str').agg(
+        Total_Pedidos=('IDSOLICITACAO', 'nunique'),
+        Importacoes_No_Prazo=('SLA_IMP_Cumprido', 'sum')
+    ).reset_index().sort_values('MesAnoCriacao_str')
+
+    grouped['Percentual_SLA_Importacao'] = (grouped['Importacoes_No_Prazo'] / grouped['Total_Pedidos']) * 100
+    grouped = grouped.fillna(0)
+
+    return grouped
+
+
+def plot_sla_importacao_by_month(df_monthly):
+    """Plota a tendência mensal do SLA de Importação."""
+    if df_monthly.empty:
+        st.warning("Nenhum dado mensal para plotar o SLA de Importação.")
+        return
+
+    fig = px.line(
+        df_monthly,
+        x='MesAnoCriacao_str',
+        y='Percentual_SLA_Importacao',
+        title='Tendência Mensal: SLA de Importação (2 dias úteis após Aprovação CMEXX)',
+        markers=True,
+        template="plotly_white",
+        color_discrete_sequence=['#FF7F50'] # Nova cor para diferenciar
+    )
+    fig.update_traces(hovertemplate='**Mês:** %{x}<br>**SLA Importação:** %{y:.2f}%<extra></extra>')
+    fig.update_yaxes(title="Percentual (%)", tickformat=".0f", range=[0, 100])
+    fig.update_xaxes(title="Mês/Ano de Criação")
+    st.plotly_chart(fig, use_container_width=True)
+
 # ==============================================================================
 # 3. Layout e Execução do Dashboard
 # ==============================================================================
@@ -382,6 +429,7 @@ def main_dashboard():
         st.session_state.page = 'main'
     
     # DEFINIÇÃO DO CAMINHO DO ARQUIVO (ATUALIZADO)
+    # ATENÇÃO: Se você estiver rodando em um ambiente diferente, ajuste este caminho.
     file_path = r'C:\Users\pedro.muniz\Documents\pythonlocal\BIOXXI\INDICADORESCMEXXFAB\CMEXXFAB_SQL.xlsx'
     
     # O Streamlit usa o cache, então a carga é rápida se o arquivo não mudar.
@@ -435,7 +483,7 @@ def main_dashboard():
 
         if selected_coligadas:
             df_filtered = df_filtered[df_filtered['COLIGADA'].isin(selected_coligadas)]
-        
+            
     st.sidebar.info(f"Total de Pedidos na Visão: **{df_filtered['IDSOLICITACAO'].nunique():,}**")
     
     # ------------------------------------
@@ -476,7 +524,7 @@ def main_dashboard():
                 st.session_state.page = 'detalhe_sla_cmexx'
                 st.rerun()
 
-        # KPI 5: SLA de Importação (2 Dias Úteis)
+        # KPI 5: SLA de Importação (2 Dias Úteis) - COM BOTÃO DE DETALHE
         kpi_importacao = calculate_kpi_sla_importacao(df_filtered)
         with col_kpi3:
             display_kpi_card(
@@ -484,6 +532,10 @@ def main_dashboard():
                 kpi_importacao,
                 help_text="Porcentagem de Pedidos (IdSolicitacao) com Importação em até 2 dias úteis da aprovação CMEXX."
             )
+            # NOVO BOTÃO PARA DETALHE SLA IMPORTAÇÃO
+            if st.button('📈 Detalhamento | SLA de Importação', key='btn_detalhe_sla_importacao', use_container_width=True):
+                st.session_state.page = 'detalhe_sla_importacao'
+                st.rerun()
             
         # Cartão de Total de Solicitações
         with col_kpi_total:
@@ -520,7 +572,7 @@ def main_dashboard():
 
         st.markdown("***")
         
-    # --- Tela de Detalhe do KPI 3 ---
+    # --- Tela de Detalhe do KPI 3 (Adesão Criação) ---
     elif st.session_state.page == 'detalhe_adesao':
         st.title("🔎 Detalhe: Adesão Mensal ao Prazo para Criação (Até o dia 20 de cada mês)")
         
@@ -571,6 +623,33 @@ def main_dashboard():
             st.dataframe(df_display, use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum dado encontrado para o cálculo mensal do SLA de Aprovação no período filtrado.")
+
+    # --- NOVO BLOCO: Tela de Detalhe do KPI 5 (SLA Importação) ---
+    elif st.session_state.page == 'detalhe_sla_importacao':
+        st.title("🔎 Detalhe: SLA de Importação (2 dias úteis após Aprovação CMEXX)")
+
+        # BOTÃO DE RETORNO
+        if st.button('⬅️ Voltar ao Dashboard Principal', key='btn_voltar_imp', type='primary'):
+            st.session_state.page = 'main'
+            st.rerun()
+
+        st.markdown("---")
+
+        # Cálculo e Plotagem do Detalhe
+        df_mensal = calculate_sla_importacao_by_month(df_filtered)
+
+        if not df_mensal.empty:
+            plot_sla_importacao_by_month(df_mensal)
+
+            st.subheader("Dados de Suporte - SLA Importação")
+            # Formata Percentual_SLA_Importacao com 2 casas decimais e sufixo '%'
+            df_display = df_mensal.copy()
+            if 'Percentual_SLA_Importacao' in df_display.columns:
+                df_display['Percentual_SLA_Importacao'] = df_display['Percentual_SLA_Importacao'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum dado encontrado para o cálculo mensal do SLA de Importação no período filtrado.")
+
 
 if __name__ == '__main__':
     main_dashboard()
