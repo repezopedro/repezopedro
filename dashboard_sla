@@ -36,7 +36,7 @@ def add_business_days(date, days_to_add):
             days_to_add -= 1
     return current_date
 
-# Função para carregar e preparar os dados (AGORA COM NORMALIZAÇÃO DE COLUNAS)
+# Função para carregar e preparar os dados
 @st.cache_data(show_spinner="Carregando e processando dados de SLA...")
 def load_data(file_path):
     """Carrega, filtra e prepara os dados da planilha Excel."""
@@ -53,13 +53,11 @@ def load_data(file_path):
         return None
 
     # 1. NORMALIZAÇÃO DE NOMES DE COLUNAS: MAIÚSCULAS e REMOVER ESPAÇOS
-    # Isso resolve o KeyError
     df.columns = df.columns.str.strip().str.upper()
 
     # Variável de coluna crítica (usada em todos os cálculos CMEXX)
     COLUMN_CMEXX = 'DATA_APROVACAO_CMEXX'
     if COLUMN_CMEXX not in df.columns:
-        # Se a coluna não for encontrada após a normalização, gera erro para diagnóstico.
         st.error(f"❌ ERRO CRÍTICO: Coluna '{COLUMN_CMEXX}' não encontrada.")
         st.warning(f"Nomes de Colunas Encontradas: {list(df.columns)}")
         return None
@@ -89,6 +87,9 @@ def load_data(file_path):
     df['AnoCriacao'] = df['DTCRIACAO'].dt.year
     df['MesAnoCompetencia'] = df['DATACOMPETENCIA'].dt.to_period('M')
 
+    # Garantir coluna de Mês/Ano de Criação baseada apenas em DTCRIACAO
+    df['Data de Criação'] = df['DTCRIACAO'].dt.to_period('M').astype(str)
+
     # KPI 3: Adesão à Criação Mensal (Corte Dia 20)
     df['DiaCriacao'] = df['DTCRIACAO'].dt.day
     df['DentroPrazoCorte'] = (df['DiaCriacao'] <= 20)
@@ -113,12 +114,7 @@ def load_data(file_path):
 
 # Função para gerar um DataFrame de exemplo caso o arquivo não exista
 def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
-    """Gera um DataFrame de exemplo compatível com o processamento do dashboard.
-
-    A função cria colunas com os nomes normalizados utilizados no script
-    (ex.: 'DTCRIACAO', 'DATACOMPETENCIA', 'IDSOLICITACAO', 'NUMEROMOV', etc.)
-    e também preenche as colunas derivadas esperadas pelo restante do código.
-    """
+    """Gera um DataFrame de exemplo compatível com o processamento do dashboard."""
     import random
 
     # Período de criação: últimos 6 meses
@@ -132,6 +128,7 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
         'NUMEROMOV': [f'NMV-{i:05d}' for i in range(num_records)],
         'IDMOV': [f'IMV-{i:06d}' for i in range(num_records)],
         'CENTRO_CUSTO': [random.choice(['CC100','CC200','CC300']) for _ in range(num_records)],
+    'COLIGADA': [random.choice(['COL1','COL2','COL3']) for _ in range(num_records)],
         'PEDIDO_EXTRA': [random.choice(['N','N','N','S']) for _ in range(num_records)],
         'STATUS_MOVIMENTO': [random.choice(['A','B','C']) for _ in range(num_records)],
         'DTCRIACAO': rng,
@@ -185,6 +182,9 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
     df['DiaCriacao'] = df['DTCRIACAO'].dt.day
     df['DENTROPRAZOCORTE'] = (df['DiaCriacao'] <= 20)
 
+    # Garantir coluna de Mês/Ano de Criação baseada apenas em DTCRIACAO
+    df['MesAnoCriacao_str'] = df['DTCRIACAO'].dt.to_period('M').astype(str)
+
     # SLA CMEXX limite e cumprimento (nomes em MAIÚSCULAS)
     df['SLA_CMEXX_LIM'] = df['DTCRIACAO'].apply(lambda d: add_business_days(d, 2) if not pd.isna(d) else pd.NaT)
     df['SLA_CMEXX_CUMPRIDO'] = (df['DATA_APROVACAO_CMEXX'] <= df['SLA_CMEXX_LIM']).fillna(False)
@@ -194,11 +194,9 @@ def generate_sample_data(num_records: int = 120) -> pd.DataFrame:
     df['SLA_IMP_CUMPRIDO'] = (df['DTIMPORTACAO'] <= df['SLA_IMP_LIM']).fillna(False)
 
     # Ajuste de nomes para compatibilidade com restante do script
-    # O restante do script cria/espera colunas com case mista (ex: 'SLA_CMEXX_Lim')
-    # Para evitar KeyErrors quando usamos os dados de simulação, criamos aliases.
-    df['SLA_CMEXX_Lim'] = df['SLA_CMEXX_LIM']
+    df['SLA_CMEXX_Lim'] = df['SLA_CMEXX_CUMPRIDO'] # Aqui o nome 'Lim' foi usado como 'Cumprido' na simulação anterior, mantendo por consistência.
     df['SLA_CMEXX_Cumprido'] = df['SLA_CMEXX_CUMPRIDO']
-    df['SLA_IMP_Lim'] = df['SLA_IMP_LIM']
+    df['SLA_IMP_Lim'] = df['SLA_IMP_CUMPRIDO'] # Aqui o nome 'Lim' foi usado como 'Cumprido' na simulação anterior, mantendo por consistência.
     df['SLA_IMP_Cumprido'] = df['SLA_IMP_CUMPRIDO']
 
     # Ajuste de nome para 'DentroPrazoCorte' com capitalização esperada
@@ -311,12 +309,52 @@ def plot_adesao_by_month(df_monthly):
         df_monthly,
         x='MesAnoCriacao_str',
         y='Percentual_Adesao',
-        title='Adesão Mensal ao Prazo de Corte (Dia 20)',
+        title='Adesão Mensal ao Prazo de Criação (Dia 20 de cada mês)',
         markers=True,
         template="plotly_white",
         color_discrete_sequence=[COLOR_SECONDARY]
     )
     fig.update_traces(hovertemplate='**Mês:** %{x}<br>**Adesão:** %{y:.2f}%<extra></extra>')
+    fig.update_yaxes(title="Percentual (%)", tickformat=".0f", range=[0, 100])
+    fig.update_xaxes(title="Mês/Ano de Criação")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def calculate_sla_cmexx_by_month(df):
+    """Calcula o % mensal de Aprovações CMEXX dentro do SLA (2 dias úteis) por mês de criação."""
+    if df.empty:
+        return pd.DataFrame()
+
+    df_unique = df.groupby('IDSOLICITACAO').first().reset_index()
+    df_unique['MesAnoCriacao_str'] = df_unique['DTCRIACAO'].dt.to_period('M').astype(str)
+
+    grouped = df_unique.groupby('MesAnoCriacao_str').agg(
+        Total_Pedidos=('IDSOLICITACAO', 'nunique'),
+        Aprovacoes_No_Prazo=('SLA_CMEXX_Cumprido', 'sum')
+    ).reset_index().sort_values('MesAnoCriacao_str')
+
+    grouped['Percentual_SLA_CMEXX'] = (grouped['Aprovacoes_No_Prazo'] / grouped['Total_Pedidos']) * 100
+    grouped = grouped.fillna(0)
+
+    return grouped
+
+
+def plot_sla_cmexx_by_month(df_monthly):
+    """Plota a tendência mensal do SLA de Aprovação CMEXX."""
+    if df_monthly.empty:
+        st.warning("Nenhum dado mensal para plotar o SLA de Aprovação.")
+        return
+
+    fig = px.line(
+        df_monthly,
+        x='MesAnoCriacao_str',
+        y='Percentual_SLA_CMEXX',
+        title='Tendência Mensal: SLA de Aprovação CMEXX (2 dias úteis)',
+        markers=True,
+        template="plotly_white",
+        color_discrete_sequence=[COLOR_PRIMARY]
+    )
+    fig.update_traces(hovertemplate='**Mês:** %{x}<br>**SLA Aprovação:** %{y:.2f}%<extra></extra>')
     fig.update_yaxes(title="Percentual (%)", tickformat=".0f", range=[0, 100])
     fig.update_xaxes(title="Mês/Ano de Criação")
     st.plotly_chart(fig, use_container_width=True)
@@ -351,11 +389,9 @@ def main_dashboard():
         df_base = load_data(file_path)
     else:
         st.warning(f"Arquivo não encontrado no caminho: `{file_path}`. Usando dados de simulação gerados localmente.")
-        # Gera dados de exemplo para permitir testes locais sem o arquivo Excel.
         df_base = generate_sample_data()
 
     if df_base is None or df_base.empty:
-        # Se o load_data falhar (ex: coluna não encontrada após normalização), ele retorna None
         st.stop()
     
     # --- Sidebar de Filtros (KPI 1) --- (Mantido)
@@ -376,7 +412,7 @@ def main_dashboard():
         st.sidebar.warning("Selecione pelo menos um ano.")
         st.stop()
 
-    df_filtered = df_base[df_base['AnoCriacao'].isin(selected_years)].copy() # Use copy() após filtragem
+    df_filtered = df_base[df_base['AnoCriacao'].isin(selected_years)].copy()
     
     all_cc = sorted(df_base['CENTRO_CUSTO'].dropna().unique().tolist())
     selected_cc = st.sidebar.multiselect(
@@ -387,6 +423,18 @@ def main_dashboard():
     
     if selected_cc:
         df_filtered = df_filtered[df_filtered['CENTRO_CUSTO'].isin(selected_cc)]
+        
+    # Filtro por Coligada (se existir na base)
+    if 'COLIGADA' in df_base.columns:
+        all_coligadas = sorted(df_base['COLIGADA'].dropna().unique().tolist())
+        selected_coligadas = st.sidebar.multiselect(
+            "Filtro por Coligada:",
+            options=all_coligadas,
+            default=[]
+        )
+
+        if selected_coligadas:
+            df_filtered = df_filtered[df_filtered['COLIGADA'].isin(selected_coligadas)]
         
     st.sidebar.info(f"Total de Pedidos na Visão: **{df_filtered['IDSOLICITACAO'].nunique():,}**")
     
@@ -406,12 +454,12 @@ def main_dashboard():
         kpi_adesao = calculate_kpi_adesao_corte(df_filtered)
         with col_kpi1:
             display_kpi_card(
-                "Adesão ao Prazo de Criação | Operações",
+                "SLA de Criação | Operações",
                 kpi_adesao,
                 help_text="Porcentagem de Pedidos (IdSolicitacao) criados até o dia 20 do mês de criação."
             )
             # BOTÃO PARA DETALHE
-            if st.button('📈 Ver Tendência Mensal', key='btn_detalhe_adesao', use_container_width=True):
+            if st.button('📈 Detalhamento | SLA de Criação', key='btn_detalhe_adesao', use_container_width=True):
                 st.session_state.page = 'detalhe_adesao'
                 st.rerun()
 
@@ -419,23 +467,27 @@ def main_dashboard():
         kpi_cmexx = calculate_kpi_sla_cmexx(df_filtered)
         with col_kpi2:
             display_kpi_card(
-                "SLA Aprovação CMEXX",
+                "SLA de Aprovação | Operações",
                 kpi_cmexx,
                 help_text="Porcentagem de Pedidos (IdSolicitacao) com aprovação CMEXX em até 2 dias úteis da criação."
             )
+            # BOTÃO PARA DETALHE SLA CMEXX
+            if st.button('📈 Detalhamento | SLA de Aprovação', key='btn_detalhe_sla_cmexx', use_container_width=True):
+                st.session_state.page = 'detalhe_sla_cmexx'
+                st.rerun()
 
         # KPI 5: SLA de Importação (2 Dias Úteis)
         kpi_importacao = calculate_kpi_sla_importacao(df_filtered)
         with col_kpi3:
             display_kpi_card(
-                "SLA de Importação",
+                "SLA de Importação | Suprimentos",
                 kpi_importacao,
                 help_text="Porcentagem de Pedidos (IdSolicitacao) com Importação em até 2 dias úteis da aprovação CMEXX."
             )
             
-        # Cartão de Total de Pedidos
+        # Cartão de Total de Solicitações
         with col_kpi_total:
-            st.markdown(f"**Total de Pedidos**")
+            st.markdown(f"**Total de Solicitações**")
             st.markdown(f"<p style='font-size: 2em; color: {COLOR_TEXT}; margin-bottom: 0px;'>{df_filtered['IDSOLICITACAO'].nunique():,}</p>", unsafe_allow_html=True)
             st.markdown("---")
 
@@ -467,11 +519,10 @@ def main_dashboard():
         )
 
         st.markdown("***")
-        st.markdown("*Nota do Arquiteto:* Este é o *MVP*. O próximo passo seria a inclusão de uma tabela de feriados para um cálculo de dias úteis 100% preciso.")
-
+        
     # --- Tela de Detalhe do KPI 3 ---
     elif st.session_state.page == 'detalhe_adesao':
-        st.title("🔎 Detalhe: Adesão Mensal ao Prazo para Aprovação (Até oDia 20)")
+        st.title("🔎 Detalhe: Adesão Mensal ao Prazo para Criação (Até o dia 20 de cada mês)")
         
         # BOTÃO DE RETORNO
         if st.button('⬅️ Voltar ao Dashboard Principal', key='btn_voltar', type='primary'):
@@ -487,9 +538,39 @@ def main_dashboard():
             plot_adesao_by_month(df_mensal)
             
             st.subheader("Dados de Suporte")
-            st.dataframe(df_mensal, use_container_width=True, hide_index=True)
+            # Formata Percentual_Adesao com 2 casas decimais e sufixo '%'
+            df_display = df_mensal.copy()
+            if 'Percentual_Adesao' in df_display.columns:
+                df_display['Percentual_Adesao'] = df_display['Percentual_Adesao'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum dado encontrado para o cálculo mensal no período filtrado.")
+
+    # --- Tela de Detalhe do KPI 4 (SLA Aprovação CMEXX) ---
+    elif st.session_state.page == 'detalhe_sla_cmexx':
+        st.title("🔎 Detalhe: SLA de Aprovação CMEXX (2 dias úteis)")
+
+        # BOTÃO DE RETORNO
+        if st.button('⬅️ Voltar ao Dashboard Principal', key='btn_voltar_sla', type='primary'):
+            st.session_state.page = 'main'
+            st.rerun()
+
+        st.markdown("---")
+
+        # Cálculo e Plotagem do Detalhe
+        df_mensal = calculate_sla_cmexx_by_month(df_filtered)
+
+        if not df_mensal.empty:
+            plot_sla_cmexx_by_month(df_mensal)
+
+            st.subheader("Dados de Suporte - SLA Aprovação")
+            # Formata Percentual_SLA_CMEXX com 2 casas decimais e sufixo '%'
+            df_display = df_mensal.copy()
+            if 'Percentual_SLA_CMEXX' in df_display.columns:
+                df_display['Percentual_SLA_CMEXX'] = df_display['Percentual_SLA_CMEXX'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum dado encontrado para o cálculo mensal do SLA de Aprovação no período filtrado.")
 
 if __name__ == '__main__':
     main_dashboard()
